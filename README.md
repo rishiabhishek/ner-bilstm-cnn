@@ -1,2 +1,2 @@
 # ner-bilstm-cnn
-Named Entity Recognition with Bidirectional LSTM-CNNs
+Implementation of [Named Entity Recognition with Bidirectional LSTM-CNNs](https://www.aclweb.org/anthology/Q16-1026)

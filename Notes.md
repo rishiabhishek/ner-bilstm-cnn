@@ -8,7 +8,7 @@
 
  1. **Character Features Using a CNN** : Words are padded with a number of special PADDING characters on both sides depending on the window size of the CNN.
  2. **Word Embeddings**<br />
-	 2.1. http://ml.nec-labs.com/senna/ <br />
+	 2.1. https://ronan.collobert.com/senna/ <br />
 	 2.2. http://nlp.stanford.edu/projects/glove/ <br />
 	 2.3. https://code.google.com/p/word2vec/ <br />
 	

@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from keras.utils import to_categorical
 import os
+import string
 
 
 class Data(object):
@@ -9,9 +10,14 @@ class Data(object):
     def __init__(self):
         print("Read Dataset")
         self.data_path = os.path.join(os.path.expanduser(
-            '~'), "Workspace/Important-Datasets/conll2003/eng.train")
+            '~'), "OtherWorkspace/Important-Datasets/conll2003/eng.train")
         self.embedding_path = os.path.join(os.path.expanduser(
-            '~'), "Workspace/Datasets/embeddings/glove.6B/glove.6B.100d.txt")
+            '~'), "OtherWorkspace/Embedding/glove.6B/glove.6B.100d.txt")
+
+        # self.data_path = os.path.join(os.path.expanduser(
+        #     '~'), "Workspace/Important-Datasets/conll2003/eng.train")
+        # self.embedding_path = os.path.join(os.path.expanduser(
+        #     '~'), "Workspace/Datasets/embeddings/glove.6B/glove.6B.100d.txt")
 
         self.dataset, self.words, self.pos, self.labels = self.read_file()
 
@@ -25,7 +31,7 @@ class Data(object):
 
         print("Create POS Features...")
         self.pos_features, self.pos_onehot = self.create_pos_features()
-
+        print("No. of POS : "+str(len(self.pos_features)))
         print("Create Labels...")
         # self.labels = set(self.dataset[:, -1])
         self.label_features = {ne: i for i, ne in enumerate(self.labels)}
@@ -33,6 +39,12 @@ class Data(object):
 
         print("Create Character Encoding...")
         self.char_vocab, self.char_onehot = self.char_level_feature()
+
+        print("Additional Char-Level Features")
+        self.additional_feature = {"uppercase": 1,
+                                   "lowercase": 2, "punctuation": 3, "other": 4}
+
+        self.add_feature_one_hot = np.identity(len(self.additional_feature))
 
         print("Loading GloVe Embeddings....")
         embedding_lines = open(self.embedding_path,
@@ -45,9 +57,13 @@ class Data(object):
         # Parameters
         self.word_length = [len(word) for word in self.words]
         self.char_num = max(self.word_length)
+        print("Max number of Characters in a Word: " + str(self.char_num))
 
         self.sent_length = [len(sent) for sent in self.dataset]
         self.word_num = max(self.sent_length)
+        print("Max number of Words in a Sentence: " + str(self.word_num))
+        print("Character Feature length : " +
+              str(len(self.char_vocab)+len(self.additional_feature)))
 
     def create_vocab(self):
         return set([str(word).lower() for word in self.words])
@@ -114,19 +130,37 @@ class Data(object):
         else:
             return np.random.randn(100)
 
+    def get_additional_char_feature(self, char):
+        if char.isupper():
+            return self.add_feature_one_hot[self.additional_feature["uppercase"]-1]
+        elif char.islower():
+            return self.add_feature_one_hot[self.additional_feature["lowercase"]-1]
+        elif char in string.punctuation:
+            return self.add_feature_one_hot[self.additional_feature["punctuation"]-1]
+        else:
+            return self.add_feature_one_hot[self.additional_feature["other"]-1]
+
+    # Convert Word to char level features
     def get_feature_word(self, word):
-        char_feature_input = np.zeros((self.char_num, len(self.char_vocab)))
+
+        char_feature_dim = len(self.char_vocab)+len(self.additional_feature)
+
+        char_feature_input = np.zeros(
+            (self.char_num, char_feature_dim))  # Concating character feature + additional char-feartures
+
         for i in range(len(word)):
             char = word[i]
-            char_feature_input[i, :] = self.get_char_level_feature(char)
+
+            char_feature_input[i, :] = np.concatenate((self.get_char_level_feature(
+                char), self.get_additional_char_feature(char)))
 
         if self.char_num - len(word) > 0:
             padding = np.zeros(
-                (self.char_num - len(word), len(self.char_vocab)))
+                (self.char_num - len(word), char_feature_dim))
             for i in range(self.char_num - len(word)):
-                padding[i, :] = self.char_onehot[self.char_vocab["PADDING"] - 1]
+                padding[i, :] = np.concatenate(
+                    (self.char_onehot[self.char_vocab["PADDING"] - 1], np.zeros(len(self.additional_feature))))
             char_feature_input[len(word):, :] = padding
-
         return char_feature_input
 
     def read_file(self):
@@ -152,7 +186,6 @@ class Data(object):
 
 
 data = Data()
-
-print(data.get_feature_word("cat"))
+print(data.get_feature_word("cat").shape)
 # print("\n\n")
 # print(data.get_embbeding("ahlk"))

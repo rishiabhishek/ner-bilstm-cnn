@@ -5,3 +5,7 @@ Implementation of [Named Entity Recognition with Bidirectional LSTM-CNNs](https:
 Dataset : [NER Dataset](https://www.kaggle.com/abhinavwalia95/entity-annotated-corpus/data)
 
 [Notes taken before Implementation](https://github.com/rishiabhishek/ner-bilstm-cnn/wiki)
+
+### Architecture
+
+![](ner.png)

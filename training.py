@@ -18,3 +18,4 @@ labels = data.get_label_one_hot()
 nerModel = NERModel(word_length=52, labels=labels, case_embeddings=case_embeddings, pos_embedings=pos_embedings, word_embeddings=word_embeddings,
                     char_embedding=char_embedding, char_case_embedding=char_case_embedding)
 nerModel.build_model()
+nerModel.train(encoded_sentences,epochs=2, batch_size=50, validation_split=0.3)

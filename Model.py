@@ -28,6 +28,12 @@ class NERModel(object):
         self.char_case_embedding = np.array(char_case_embedding)
 
         self.num_labels = self.labels.shape[0]
+        self.model = None
+
+        # GPU Config
+        # cfg = K.tf.ConfigProto()
+        # cfg.gpu_options.allow_growth = True
+        # K.set_session(K.tf.Session(config=cfg))
 
     def build_model(self, loss='sparse_categorical_crossentropy', optimizer='nadam'):
 
@@ -122,8 +128,32 @@ class NERModel(object):
         output = TimeDistributed(Dense(self.num_labels))(output)
         print("Output of Dense Network : " + str(output.shape))
 
-        model = Model(inputs=[word_case_input, pos_input, word_input,
+        self.model = Model(inputs=[word_case_input, pos_input, word_input,
                               char_input, char_case_input], outputs=[output])
-        model.compile(loss=loss, optimizer=optimizer)
-        model.summary()
-        plot_model(model, to_file='ner.png')
+        self.model.compile(loss=loss, optimizer=optimizer)
+        self.model.summary()
+        plot_model(self.model, to_file='ner.png')
+
+
+    def train(self, inputs, epochs=20, batch_size=50, validation_split=0.3):
+        if(self.model):
+            word_case_input = []
+            pos_input = []
+            word_input = []
+            char_input = []
+            char_case_input = []
+            labels_ = []
+
+            for case_feature, pos_feature, char_feature, char_case_feature, word_embeding, labels in inputs:
+                word_case_input.append(word_case_input)
+                pos_input.append(pos_feature)
+                word_input.append(word_embeding)
+                char_input.append(char_feature)
+                char_case_input.append(char_case_feature)
+                labels_.append(labels)
+
+            self.model.fit(x=[np.array(word_case_input), np.array(pos_input), np.array(word_input),
+                              np.array(char_input), np.array(char_case_input)] , y = np.array(labels_),epochs=epochs,validation_split=validation_split,batch_size=batch_size)
+
+            print("Saving Model.....")
+            self.model.save('ner_model.h5')

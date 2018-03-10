@@ -6,13 +6,12 @@ import string
 
 
 class Data(object):
-
     def __init__(self):
-        print("Read Dataset")
+        # print("Read Dataset")
         # self.data_path = os.path.join(os.path.expanduser(
-        #     '~'), "OtherWorkspace/Important-Datasets/conll2003/eng.train")
+        #     '~'), "dataset/eng_final.train.txt")
         # self.embedding_path = os.path.join(os.path.expanduser(
-        #     '~'), "OtherWorkspace/Embedding/glove.6B/glove.6B.100d.txt")
+        #     '~'), "embedding/glove.6B.100d.txt")
 
         self.data_path = os.path.join(os.path.expanduser(
             '~'), "Workspace/Important-Datasets/conll2003/eng.train")
@@ -22,7 +21,7 @@ class Data(object):
         self.dataset, self.words, self.pos, self.labels = self.read_file()
 
         self.features = {"allCaps": 0, "upperInitial": 1, "lowercase": 2,
-                         "mixedCaps": 3, "number": 4, "noinfo": 5}
+                         "mixedCaps": 3, "number": 4, "noinfo": 5, "PADDING": 6}
         self.one_hot = np.identity(len(self.features))
 
         print("Create POS Features...")
@@ -37,11 +36,11 @@ class Data(object):
         print("Create Character Encoding...")
         self.char_vocab, self.char_onehot = self.char_level_feature()
 
-        print("Additional Char-Level Features")
-        self.additional_feature = {"uppercase": 0,
+        print("Char-Case Features")
+        self.char_case_feature = {"uppercase": 0,
                                    "lowercase": 1, "punctuation": 2, "other": 3, "PADDING": 4}
 
-        self.add_feature_one_hot = np.identity(len(self.additional_feature))
+        self.char_case_feature_one_hot = np.identity(len(self.char_case_feature))
 
         print("Loading GloVe Embeddings....")
         embedding_lines = open(self.embedding_path,
@@ -64,7 +63,7 @@ class Data(object):
         self.word_num = max(self.sent_length)
         print("Max number of Words in a Sentence: " + str(self.word_num))
         print("Character Feature length : " +
-              str(len(self.char_vocab) + len(self.additional_feature)))
+              str(len(self.char_vocab) + len(self.char_case_feature)))
 
     def get_sentences(self):
         return self.dataset
@@ -79,7 +78,7 @@ class Data(object):
         return self.char_onehot
 
     def get_char_case_embeddings(self):
-        return self.add_feature_one_hot
+        return self.char_case_feature_one_hot
 
     def get_glove_embeddings(self):
         return self.embeddings
@@ -101,11 +100,11 @@ class Data(object):
                     sentence = []
             else:
                 items = line.split(' ')
-                sentence.append(
-                    [items[0], items[1], items[-1].replace("\n", "")])
+                sentence.append([items[0], items[1], items[-1].replace("\n", "")])
                 words.add(items[0])
                 pos.add(items[1])
                 labels.add(items[-1].replace("\n", ""))
+        words.add("PADDING")
         return sentences, words, pos, labels
 
     def create_vocab(self, glove_embeddings):
@@ -116,8 +115,6 @@ class Data(object):
         for word, i in vocab.items():
             if word in glove_embeddings:
                 embeddings[i, :] = glove_embeddings[word]
-            # else:
-            #     embeddings[i, :]=np.random.uniform(-0.25, 0.25, dimension)
 
         return vocab, embeddings
 
@@ -147,7 +144,6 @@ class Data(object):
             return self.features["noinfo"]
 
     def create_pos_features(self):
-        # pos_set = set(self.dataset[:, 1])
         pos_features = {pos: i for i, pos in enumerate(self.pos)}
         pos_onehot = np.identity(len(pos_features))
         return pos_features, pos_onehot
@@ -156,7 +152,7 @@ class Data(object):
         return self.pos_features[pos]
 
     def get_labels(self, label):
-        return self.label_features[label]
+        return self.label_onehot[self.label_features[label]]
 
     def char_level_feature(self):
         char_set = set()
@@ -178,13 +174,13 @@ class Data(object):
 
     def get_additional_char_feature(self, char):
         if char.isupper():
-            return self.additional_feature["uppercase"]
+            return self.char_case_feature["uppercase"]
         elif char.islower():
-            return self.additional_feature["lowercase"]
+            return self.char_case_feature["lowercase"]
         elif char in string.punctuation:
-            return self.additional_feature["punctuation"]
+            return self.char_case_feature["punctuation"]
         else:
-            return self.additional_feature["other"]
+            return self.char_case_feature["other"]
 
     def get_embbeding(self, word):
         return self.vocab[word]
@@ -220,18 +216,64 @@ class Data(object):
 
                 labels.append(self.get_labels(label))
             encoded_sentences.append([
-                case_feature, pos_feature, char_feature, char_case_feature, word_embeding, labels])
+                self.word_padding(case_feature), self.word_padding(pos_feature),
+                self.char_vocab_to_sent_padding(char_feature), self.char_case_to_sent_padding(char_case_feature),
+                self.word_embedding_padding(word_embeding), self.label_padding(labels)])
 
-        return encoded_sentences
+        return encoded_sentences, self.char_num, self.word_num
 
     # Convert Word to char level features
     def padding(self, features):
         feature_len = len(features)
         padding_len = self.char_num - feature_len
-        paddings = [self.additional_feature["PADDING"]
+        paddings = [self.char_case_feature["PADDING"]
                     for _ in range(padding_len)]
         return features + paddings
 
+    def char_case_to_sent_padding(self, word):
+
+        padding_list = [self.char_case_feature["PADDING"]
+                        for _ in range(self.char_num)]
+
+        word_len = len(word)
+        padding_len = self.word_num - word_len
+        paddings = [padding_list
+                    for _ in range(padding_len)]
+        return word + paddings
+
+    def char_vocab_to_sent_padding(self, word):
+
+        padding_list = [self.char_vocab["PADDING"]
+                        for _ in range(self.char_num)]
+
+        word_len = len(word)
+        padding_len = self.word_num - word_len
+        paddings = [padding_list
+                    for _ in range(padding_len)]
+        return word + paddings
+
+    #  Padding word to make equal length sentences
+    def word_padding(self, word):
+        word_len = len(word)
+        padding_len = self.word_num - word_len
+        paddings = [self.features["PADDING"]
+                    for _ in range(padding_len)]
+        return word + paddings
+
+    # Embedding PADDING to make equal length sentences
+    def word_embedding_padding(self, word):
+        word_len = len(word)
+        padding_len = self.word_num - word_len
+        paddings = [self.vocab["padding"]
+                    for _ in range(padding_len)]
+        return word + paddings
+
+    def label_padding(self, labels):
+        word_len = len(labels)
+        padding_len = self.word_num - word_len
+        paddings = [self.get_labels("O")
+                    for _ in range(padding_len)]
+        return labels + paddings
 
 # data = Data()
 # sentences = data.get_sentences()

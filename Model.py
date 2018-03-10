@@ -1,17 +1,24 @@
 import pandas as pd
 import numpy as np
 
-from keras.layers import Input, Dense, Conv1D, Flatten, MaxPooling1D, LeakyReLU, Dropout, TimeDistributed, Embedding, concatenate, Bidirectional, LSTM
+from keras.layers import Input, Dense, Conv1D, Flatten, MaxPooling1D, LeakyReLU, Dropout, TimeDistributed, Embedding, \
+    concatenate, Bidirectional, LSTM
 from keras import optimizers, losses, activations
 from keras.models import Model
 from keras.utils.vis_utils import plot_model
+from keras.utils import generic_utils
 from keras import backend as K
+import keras
 
 
 class NERModel(object):
-    def __init__(self, word_length, labels, case_embeddings, pos_embedings, word_embeddings, char_embedding, char_case_embedding,
-                 rnn_size=100, filters=25, pool_size=3, kernel_size=3, dropout=0.5, leaky_alpha=0.3):
+    def __init__(self, word_length, sentence_length, labels, case_embeddings, pos_embedings, word_embeddings,
+                 char_embedding,
+                 char_case_embedding,
+                 rnn_size=10, filters=2, pool_size=3, kernel_size=3, dropout=0.5, leaky_alpha=0.3):
+
         self.word_length = word_length  # 52
+        self.sentence_length = sentence_length  # 110
 
         self.leaky_alpha = leaky_alpha
         self.dropout = dropout
@@ -35,11 +42,11 @@ class NERModel(object):
         # cfg.gpu_options.allow_growth = True
         # K.set_session(K.tf.Session(config=cfg))
 
-    def build_model(self, loss='sparse_categorical_crossentropy', optimizer='nadam'):
+    def build_model(self, loss='categorical_crossentropy', optimizer='nadam'):
 
         print("Building NER Model .... ")
         # Word Case Embeddings
-        word_case_input = Input(shape=(None,))
+        word_case_input = Input(shape=(self.sentence_length,), name="word_case")
         word_case_embedding = Embedding(
             input_dim=self.case_embeddings.shape[0],
             output_dim=self.case_embeddings.shape[1],
@@ -49,7 +56,7 @@ class NERModel(object):
         print("Word Case Embedding : " + str(word_case_embedding.shape))
 
         # POS Embeddings
-        pos_input = Input(shape=(None,))
+        pos_input = Input(shape=(self.sentence_length,), name="pos")
         pos_embedding = Embedding(
             input_dim=self.pos_embedings.shape[0],
             output_dim=self.pos_embedings.shape[1],
@@ -59,7 +66,7 @@ class NERModel(object):
         print("POS Embedding : " + str(pos_embedding.shape))
 
         # Word Embeddings
-        word_input = Input(shape=(None,))
+        word_input = Input(shape=(self.sentence_length,), name="word_embedding")
         word_embedding = Embedding(
             input_dim=self.word_embeddings.shape[0],
             output_dim=self.word_embeddings.shape[1],
@@ -69,7 +76,7 @@ class NERModel(object):
         print("Word Embedding : " + str(word_embedding.shape))
 
         # Char Embeddings
-        char_input = Input(shape=(None, self.word_length))
+        char_input = Input(shape=(self.sentence_length, self.word_length), name="char_embedding")
         char_embedding = TimeDistributed(Embedding(
             input_dim=self.char_embedding.shape[0],
             output_dim=self.char_embedding.shape[1],
@@ -89,7 +96,7 @@ class NERModel(object):
         print("Char Embedding (After Flatten) : " + str(char_cnn.shape))
 
         # Char Case Embeddings
-        char_case_input = Input(shape=(None, self.word_length))
+        char_case_input = Input(shape=(self.sentence_length, self.word_length), name="char_case")
         char_case_embedding = TimeDistributed(Embedding(
             input_dim=self.char_case_embedding.shape[0],
             output_dim=self.char_case_embedding.shape[1],
@@ -129,31 +136,84 @@ class NERModel(object):
         print("Output of Dense Network : " + str(output.shape))
 
         self.model = Model(inputs=[word_case_input, pos_input, word_input,
-                              char_input, char_case_input], outputs=[output])
-        self.model.compile(loss=loss, optimizer=optimizer)
+                                   char_input, char_case_input], outputs=[output])
+        self.model.compile(loss=loss, optimizer=optimizer, metrics=['accuracy'])
         self.model.summary()
         plot_model(self.model, to_file='ner.png')
 
-
-    def train(self, inputs, epochs=20, batch_size=50, validation_split=0.3):
-        if(self.model):
-            word_case_input = []
-            pos_input = []
-            word_input = []
-            char_input = []
-            char_case_input = []
+    def _minibatch(self, dataset, batch_size):
+        batch_num = int(len(dataset) / batch_size)
+        for i in range(batch_num):
+            word_case_inputs = []
+            pos_inputs = []
+            word_inputs = []
+            char_inputs = []
+            char_case_inputs = []
             labels_ = []
-
-            for case_feature, pos_feature, char_feature, char_case_feature, word_embeding, labels in inputs:
-                word_case_input.append(word_case_input)
-                pos_input.append(pos_feature)
-                word_input.append(word_embeding)
-                char_input.append(char_feature)
-                char_case_input.append(char_case_feature)
+            start = i * batch_size
+            end = i + batch_size
+            for j in range(start, end):
+                case_feature, pos_feature, char_feature, char_case_feature, word_embeding, labels = dataset[j]
+                word_case_inputs.append(case_feature)
+                pos_inputs.append(pos_feature)
+                word_inputs.append(word_embeding)
+                char_inputs.append(char_feature)
+                char_case_inputs.append(char_case_feature)
                 labels_.append(labels)
 
-            self.model.fit(x=[np.array(word_case_input), np.array(pos_input), np.array(word_input),
-                              np.array(char_input), np.array(char_case_input)] , y = np.array(labels_),epochs=epochs,validation_split=validation_split,batch_size=batch_size)
+            word_case_inputs = np.array(word_case_inputs)
+            pos_inputs = np.array(pos_inputs)
+            word_inputs = np.array(word_inputs)
+            char_inputs = np.array(char_inputs)
+            char_case_inputs = np.array(char_case_inputs)
+            labels_ = np.array(labels_)
 
+            yield word_case_inputs, pos_inputs, word_inputs, char_inputs, char_case_inputs, labels_
+
+    def train(self, inputs, train_on_batch=False, epochs=20, batch_size=50, validation_split=0.3):
+
+        if train_on_batch:
+
+            for epoch in range(epochs):
+                print("Epoch %d/%d" % (epoch, epochs))
+                a = generic_utils.Progbar(batch_size)
+                # print("No. of Batches : " + str(len(batches)))
+                for i, batch in enumerate(self._minibatch(inputs, batch_size)):
+                    word_case_input, pos_input, word_input, char_input, char_case_input, labels_ = batch
+                    print("Training batch : " + str(i))
+                    self.model.train_on_batch(
+                        [word_case_input, pos_input, word_input, char_input, char_case_input],
+                        labels_)
+                    # print(self.model.metrics_names)
+                    a.update(i)
+                    print(' ')
+                print("Saving Model.....")
+                self.model.save('ner_model.h5')
+        else:
+            word_case_inputs = []
+            pos_inputs = []
+            word_inputs = []
+            char_inputs = []
+            char_case_inputs = []
+            labels_ = []
+
+            for data in inputs:
+                case_feature, pos_feature, char_feature, char_case_feature, word_embeding, labels = data
+                word_case_inputs.append(case_feature)
+                pos_inputs.append(pos_feature)
+                word_inputs.append(word_embeding)
+                char_inputs.append(char_feature)
+                char_case_inputs.append(char_case_feature)
+                labels_.append(labels)
+
+            word_case_inputs = np.array(word_case_inputs)
+            pos_inputs = np.array(pos_inputs)
+            word_inputs = np.array(word_inputs)
+            char_inputs = np.array(char_inputs)
+            char_case_inputs = np.array(char_case_inputs)
+            labels_ = np.array(labels_)
+
+            self.model.fit(x=[word_case_inputs, pos_inputs, word_inputs, char_inputs, char_case_inputs], y=labels_,
+                           epochs=epochs, batch_size=batch_size, validation_split=validation_split)
             print("Saving Model.....")
             self.model.save('ner_model.h5')

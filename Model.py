@@ -15,7 +15,7 @@ class NERModel(object):
     def __init__(self, word_length, sentence_length, labels, case_embeddings, pos_embedings, word_embeddings,
                  char_embedding,
                  char_case_embedding,
-                 rnn_size=10, filters=2, pool_size=3, kernel_size=3, dropout=0.5, leaky_alpha=0.3):
+                 rnn_size=200, filters=25, pool_size=3, kernel_size=3, dropout=0.5, leaky_alpha=0.3):
 
         self.word_length = word_length  # 52
         self.sentence_length = sentence_length  # 110

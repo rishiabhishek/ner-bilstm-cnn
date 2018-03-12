@@ -1,24 +1,22 @@
-import pandas as pd
 import numpy as np
-
+from keras import backend as K
 from keras.layers import Input, Dense, Conv1D, Flatten, MaxPooling1D, LeakyReLU, Dropout, TimeDistributed, Embedding, \
     concatenate, Bidirectional, LSTM
-from keras import optimizers, losses, activations
 from keras.models import Model
-from keras.utils.vis_utils import plot_model
 from keras.utils import generic_utils
-from keras import backend as K
-import keras
+from keras.utils.vis_utils import plot_model
+from keras.callbacks import ModelCheckpoint, Callback
+from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
 
 
 class NERModel(object):
-    def __init__(self, word_length, sentence_length, labels, case_embeddings, pos_embedings, word_embeddings,
+    def __init__(self, word_length, labels, case_embeddings, pos_embedings, word_embeddings,
                  char_embedding,
                  char_case_embedding,
-                 rnn_size=200, filters=25, pool_size=3, kernel_size=3, dropout=0.5, leaky_alpha=0.3):
+                 rnn_size=275, filters=53, pool_size=3, kernel_size=3, dropout=0.68, leaky_alpha=0.3,
+                 learning_rate=0.0105):
 
         self.word_length = word_length  # 52
-        self.sentence_length = sentence_length  # 110
 
         self.leaky_alpha = leaky_alpha
         self.dropout = dropout
@@ -26,6 +24,7 @@ class NERModel(object):
         self.kernel_size = kernel_size
         self.pool_size = pool_size
         self.rnn_size = rnn_size
+        self.learning_rate = learning_rate
 
         self.labels = np.array(labels)
         self.case_embeddings = np.array(case_embeddings)
@@ -38,15 +37,15 @@ class NERModel(object):
         self.model = None
 
         # GPU Config
-        # cfg = K.tf.ConfigProto()
-        # cfg.gpu_options.allow_growth = True
-        # K.set_session(K.tf.Session(config=cfg))
+        cfg = K.tf.ConfigProto()
+        cfg.gpu_options.allow_growth = True
+        K.set_session(K.tf.Session(config=cfg))
 
-    def build_model(self, loss='categorical_crossentropy', optimizer='nadam'):
+    def build_model(self, loss='categorical_crossentropy', optimizer='sgd'):
 
         print("Building NER Model .... ")
         # Word Case Embeddings
-        word_case_input = Input(shape=(self.sentence_length,), name="word_case")
+        word_case_input = Input(shape=(None,), name="word_case")
         word_case_embedding = Embedding(
             input_dim=self.case_embeddings.shape[0],
             output_dim=self.case_embeddings.shape[1],
@@ -56,7 +55,7 @@ class NERModel(object):
         print("Word Case Embedding : " + str(word_case_embedding.shape))
 
         # POS Embeddings
-        pos_input = Input(shape=(self.sentence_length,), name="pos")
+        pos_input = Input(shape=(None,), name="pos")
         pos_embedding = Embedding(
             input_dim=self.pos_embedings.shape[0],
             output_dim=self.pos_embedings.shape[1],
@@ -66,7 +65,7 @@ class NERModel(object):
         print("POS Embedding : " + str(pos_embedding.shape))
 
         # Word Embeddings
-        word_input = Input(shape=(self.sentence_length,), name="word_embedding")
+        word_input = Input(shape=(None,), name="word_embedding")
         word_embedding = Embedding(
             input_dim=self.word_embeddings.shape[0],
             output_dim=self.word_embeddings.shape[1],
@@ -76,7 +75,7 @@ class NERModel(object):
         print("Word Embedding : " + str(word_embedding.shape))
 
         # Char Embeddings
-        char_input = Input(shape=(self.sentence_length, self.word_length), name="char_embedding")
+        char_input = Input(shape=(None, self.word_length), name="char_embedding")
         char_embedding = TimeDistributed(Embedding(
             input_dim=self.char_embedding.shape[0],
             output_dim=self.char_embedding.shape[1],
@@ -96,7 +95,7 @@ class NERModel(object):
         print("Char Embedding (After Flatten) : " + str(char_cnn.shape))
 
         # Char Case Embeddings
-        char_case_input = Input(shape=(self.sentence_length, self.word_length), name="char_case")
+        char_case_input = Input(shape=(None, self.word_length), name="char_case")
         char_case_embedding = TimeDistributed(Embedding(
             input_dim=self.char_case_embedding.shape[0],
             output_dim=self.char_case_embedding.shape[1],
@@ -127,33 +126,31 @@ class NERModel(object):
         # 2 Bi-LSTM
         output = Bidirectional(
             LSTM(units=self.rnn_size, return_sequences=True))(rnn_input)
-        output = Bidirectional(
-            LSTM(units=self.rnn_size, return_sequences=True))(output)
+        # output = Bidirectional(
+        #     LSTM(units=self.rnn_size, return_sequences=True))(output)
 
         print("Output of Bi-LSTM : " + str(output.shape))
 
-        output = TimeDistributed(Dense(self.num_labels))(output)
+        output = TimeDistributed(Dense(self.num_labels, activation='softmax'))(output)
         print("Output of Dense Network : " + str(output.shape))
 
         self.model = Model(inputs=[word_case_input, pos_input, word_input,
                                    char_input, char_case_input], outputs=[output])
+
         self.model.compile(loss=loss, optimizer=optimizer, metrics=['accuracy'])
         self.model.summary()
         plot_model(self.model, to_file='ner.png')
 
-    def _minibatch(self, dataset, batch_size):
-        batch_num = int(len(dataset) / batch_size)
-        for i in range(batch_num):
+    def _minibatch(self, dataset):
+        batches = []
+        for batch in dataset:
             word_case_inputs = []
             pos_inputs = []
             word_inputs = []
             char_inputs = []
             char_case_inputs = []
             labels_ = []
-            start = i * batch_size
-            end = i + batch_size
-            for j in range(start, end):
-                case_feature, pos_feature, char_feature, char_case_feature, word_embeding, labels = dataset[j]
+            for case_feature, pos_feature, char_feature, char_case_feature, word_embeding, labels in batch:
                 word_case_inputs.append(case_feature)
                 pos_inputs.append(pos_feature)
                 word_inputs.append(word_embeding)
@@ -161,44 +158,20 @@ class NERModel(object):
                 char_case_inputs.append(char_case_feature)
                 labels_.append(labels)
 
-            word_case_inputs = np.array(word_case_inputs)
-            pos_inputs = np.array(pos_inputs)
-            word_inputs = np.array(word_inputs)
-            char_inputs = np.array(char_inputs)
-            char_case_inputs = np.array(char_case_inputs)
-            labels_ = np.array(labels_)
+            batches.append((np.array(word_case_inputs), np.array(pos_inputs), np.array(word_inputs), np.array(
+                char_inputs), np.array(char_case_inputs), np.array(labels_)))
+            # batches.append(final_batch)
+        return batches
 
-            yield word_case_inputs, pos_inputs, word_inputs, char_inputs, char_case_inputs, labels_
-
-    def train(self, inputs, train_on_batch=False, epochs=20, batch_size=50, validation_split=0.3):
-
-        if train_on_batch:
-
-            for epoch in range(epochs):
-                print("Epoch %d/%d" % (epoch, epochs))
-                a = generic_utils.Progbar(batch_size)
-                # print("No. of Batches : " + str(len(batches)))
-                for i, batch in enumerate(self._minibatch(inputs, batch_size)):
-                    word_case_input, pos_input, word_input, char_input, char_case_input, labels_ = batch
-                    print("Training batch : " + str(i))
-                    self.model.train_on_batch(
-                        [word_case_input, pos_input, word_input, char_input, char_case_input],
-                        labels_)
-                    # print(self.model.metrics_names)
-                    a.update(i)
-                    print(' ')
-                print("Saving Model.....")
-                self.model.save('ner_model.h5')
-        else:
-            word_case_inputs = []
-            pos_inputs = []
-            word_inputs = []
-            char_inputs = []
-            char_case_inputs = []
-            labels_ = []
-
-            for data in inputs:
-                case_feature, pos_feature, char_feature, char_case_feature, word_embeding, labels = data
+    def _validation_generator(self, val_data):
+        word_case_inputs = []
+        pos_inputs = []
+        word_inputs = []
+        char_inputs = []
+        char_case_inputs = []
+        labels_ = []
+        for batch in val_data:
+            for case_feature, pos_feature, char_feature, char_case_feature, word_embeding, labels in batch:
                 word_case_inputs.append(case_feature)
                 pos_inputs.append(pos_feature)
                 word_inputs.append(word_embeding)
@@ -206,14 +179,80 @@ class NERModel(object):
                 char_case_inputs.append(char_case_feature)
                 labels_.append(labels)
 
-            word_case_inputs = np.array(word_case_inputs)
-            pos_inputs = np.array(pos_inputs)
-            word_inputs = np.array(word_inputs)
-            char_inputs = np.array(char_inputs)
-            char_case_inputs = np.array(char_case_inputs)
-            labels_ = np.array(labels_)
+        return np.array(word_case_inputs), np.array(pos_inputs), np.array(word_inputs), np.array(
+            char_inputs), np.array(char_case_inputs), np.array(labels_)
 
-            self.model.fit(x=[word_case_inputs, pos_inputs, word_inputs, char_inputs, char_case_inputs], y=labels_,
-                           epochs=epochs, batch_size=batch_size, validation_split=validation_split)
-            print("Saving Model.....")
-            self.model.save('ner_model.h5')
+    def convet_to_prediction(self, y_probs):
+        y_pred = np.zeros_like(y_probs)
+        y_class = np.argmax(y_probs, axis=-1)
+
+        i, j = y_class.shape
+        for x in range(i):
+            for y in range(j):
+                z = y_class[x, y]
+                y_pred[x, y, z] = 1
+
+        return y_pred
+
+    def train(self, inputs, validation_data, epochs=40):
+
+        validation_data = self._validation_generator(validation_data)
+        batches = self._minibatch(inputs)
+        print("Batch Length : " + str(len(batches)))
+        progbar = generic_utils.Progbar(len(batches))
+
+        for epoch in range(epochs):
+
+            print("Epoch {} / {}".format(epoch + 1, epochs))
+
+            for i, batch in enumerate(batches):
+                word_case_inputs, pos_inputs, word_inputs, char_inputs, char_case_inputs, labels_ = batch
+
+                loss, acc = self.model.train_on_batch(
+                    x=[word_case_inputs, pos_inputs, word_inputs, char_inputs, char_case_inputs],
+                    y=labels_)
+
+                progbar.add(1, values=[("train loss", loss), ("acc", acc)])
+
+            val_word_case_inputs, val_pos_inputs, val_word_inputs, val_char_inputs, val_char_case_inputs, y_true = validation_data
+            y_pred = self.model.predict(
+                [val_word_case_inputs, val_pos_inputs, val_word_inputs, val_char_inputs, val_char_case_inputs],
+                batch_size=10)
+
+            prec = precision_score(y_true=y_true, y_pred=self.convet_to_prediction(y_pred))
+            recall = recall_score(y_true=y_true, y_pred=y_pred)
+            f1 = f1_score(y_true=y_true, y_pred=y_pred)
+            print("Precision : {:.2f}, Recall : {:.2f}, F1-Score : {:.2f}".format(prec, recall, f1))
+            file_path = 'ner-model-{}.h5'.format(epoch + 1)
+            self.model.save(file_path)
+
+
+class Metrics(Callback):
+    def on_train_begin(self, logs={}):
+        self.val_f1s = []
+        self.val_recalls = []
+        self.val_precisions = []
+
+    def on_epoch_end(self, epoch, logs={}):
+        val_predict = (np.asarray(self.model.predict(self.model.validation_data[0]))).round()
+        val_targ = self.model.validation_data[1]
+        _val_f1 = f1_score(val_targ, val_predict)
+        _val_recall = recall_score(val_targ, val_predict)
+        _val_precision = precision_score(val_targ, val_predict)
+        self.val_f1s.append(_val_f1)
+        self.val_recalls.append(_val_recall)
+        self.val_precisions.append(_val_precision)
+        print(" — val_f1: % f — val_precision: % f — val_recall % f" % (_val_f1, _val_precision, _val_recall))
+        return
+
+    def on_batch_end(self, batch, logs=None):
+        val_predict = (np.asarray(self.model.predict(self.model.validation_data[0]))).round()
+        val_targ = self.model.validation_data[1]
+        _val_f1 = f1_score(val_targ, val_predict)
+        _val_recall = recall_score(val_targ, val_predict)
+        _val_precision = precision_score(val_targ, val_predict)
+        self.val_f1s.append(_val_f1)
+        self.val_recalls.append(_val_recall)
+        self.val_precisions.append(_val_precision)
+        print(" — val_f1: % f — val_precision: % f — val_recall % f" % (_val_f1, _val_precision, _val_recall))
+        return

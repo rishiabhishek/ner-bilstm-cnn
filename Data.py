@@ -13,12 +13,26 @@ class Data(object):
         # self.embedding_path = os.path.join(os.path.expanduser(
         #     '~'), "embedding/glove.6B.100d.txt")
 
-        self.data_path = os.path.join(os.path.expanduser(
-            '~'), "Workspace/Important-Datasets/conll2003/eng.train")
+
+        # Embeddings
         self.embedding_path = os.path.join(os.path.expanduser(
             '~'), "Workspace/Datasets/embeddings/glove.6B/glove.6B.100d.txt")
 
+        # Training Dataset
+        self.data_path = os.path.join(os.path.expanduser(
+            '~'), "Workspace/Important-Datasets/conll2003/eng.train")
+
+        # Validation Dataset
+        self.validation_path = os.path.join(os.path.expanduser(
+            '~'), "Workspace/Important-Datasets/conll2003/eng.testa")
+
+        # Test Dataset
+        self.test_path = os.path.join(os.path.expanduser(
+            '~'), "Workspace/Important-Datasets/conll2003/eng.testb")
+
         self.dataset, self.words, self.pos, self.labels = self.read_file()
+        self.test_dataset, self.test_words, self.test_pos, self.test_labels = self.read_file(type='test')
+        self.val_dataset, self.val_words, self.val_pos, self.val_labels = self.read_file(type='val')
 
         self.features = {"allCaps": 0, "upperInitial": 1, "lowercase": 2,
                          "mixedCaps": 3, "number": 4, "noinfo": 5, "PADDING": 6}
@@ -38,7 +52,7 @@ class Data(object):
 
         print("Char-Case Features")
         self.char_case_feature = {"uppercase": 0,
-                                   "lowercase": 1, "punctuation": 2, "other": 3, "PADDING": 4}
+                                  "lowercase": 1, "punctuation": 2, "other": 3, "PADDING": 4}
 
         self.char_case_feature_one_hot = np.identity(len(self.char_case_feature))
 
@@ -65,8 +79,14 @@ class Data(object):
         print("Character Feature length : " +
               str(len(self.char_vocab) + len(self.char_case_feature)))
 
-    def get_sentences(self):
+    def get_train_sentences(self):
         return self.dataset
+
+    def get_test_sentences(self):
+        return self.test_dataset
+
+    def get_val_sentences(self):
+        return self.val_dataset
 
     def get_case_embeddings(self):
         return self.one_hot
@@ -86,8 +106,19 @@ class Data(object):
     def get_label_one_hot(self):
         return self.label_onehot
 
-    def read_file(self):
-        lines = open(self.data_path, encoding="utf-8")
+    def read_file(self, type="train"):
+        '''
+
+        :param type: train,test,validation
+        :return:
+        '''
+        if type == 'val' or type == 'validation':
+            lines = open(self.validation_path, encoding="utf-8")
+        elif type == 'test':
+            lines = open(self.test_path, encoding="utf-8")
+        else:
+            lines = open(self.data_path, encoding="utf-8")
+
         sentences = []
         sentence = []
         pos = set()
@@ -109,7 +140,16 @@ class Data(object):
 
     def create_vocab(self, glove_embeddings):
         dimension = len(list(glove_embeddings.values())[0])
-        words = sorted(set([str(word).lower() for word in self.words]))
+
+        words = set([str(word).lower() for word in self.words])
+        for word in self.test_words:
+            words.add(word.lower())
+
+        for word in self.val_words:
+            words.add(word.lower())
+
+        words = sorted(words)
+
         vocab = {word: i for i, word in enumerate(words)}
         embeddings = np.random.uniform(-0.25, 0.25, (len(vocab), dimension))
         for word, i in vocab.items():
@@ -215,12 +255,39 @@ class Data(object):
                 char_case_feature.append(self.padding(add_char_level_feature))
 
                 labels.append(self.get_labels(label))
-            encoded_sentences.append([
-                self.word_padding(case_feature), self.word_padding(pos_feature),
-                self.char_vocab_to_sent_padding(char_feature), self.char_case_to_sent_padding(char_case_feature),
-                self.word_embedding_padding(word_embeding), self.label_padding(labels)])
+            encoded_sentences.append(
+                [case_feature, pos_feature, char_feature, char_case_feature, word_embeding, labels])
+            # encoded_sentences.append([
+            #     self.word_padding(case_feature), self.word_padding(pos_feature),
+            #     self.char_vocab_to_sent_padding(char_feature), self.char_case_to_sent_padding(char_case_feature),
+            #     self.word_embedding_padding(word_embeding), self.label_padding(labels)])
 
+        encoded_sentences = sorted(encoded_sentences, key=lambda item: len(item[0]))
         return encoded_sentences, self.char_num, self.word_num
+
+    def formated_dataset(self, sentences, batch=True, batch_size=10):
+        encode_sentences, word_length, sentence_length = self.encode_sentences(sentences)
+        if not batch:
+            return encode_sentences, word_length, sentence_length
+        else:
+            batches = []
+            batch_num = int(len(encode_sentences) / batch_size)
+            for i in range(batch_num):
+                final_batch = []
+                start = i * batch_size
+                end = start + batch_size
+                batch = encode_sentences[start:end]
+
+                lengths = [len(word[0]) for word in batch]
+                max_len = max(lengths)
+                for case_feature, pos_feature, char_feature, char_case_feature, word_embeding, labels in batch:
+                    final_batch.append([
+                        self.word_padding(case_feature, max_len), self.word_padding(pos_feature, max_len),
+                        self.char_vocab_to_sent_padding(char_feature, max_len),
+                        self.char_case_to_sent_padding(char_case_feature, max_len),
+                        self.word_embedding_padding(word_embeding, max_len), self.label_padding(labels, max_len)])
+                batches.append(final_batch)
+            return batches, word_length, sentence_length
 
     # Convert Word to char level features
     def padding(self, features):
@@ -230,52 +297,61 @@ class Data(object):
                     for _ in range(padding_len)]
         return features + paddings
 
-    def char_case_to_sent_padding(self, word):
+    def char_case_to_sent_padding(self, word, max_len):
 
         padding_list = [self.char_case_feature["PADDING"]
                         for _ in range(self.char_num)]
 
         word_len = len(word)
-        padding_len = self.word_num - word_len
+        padding_len = max_len - word_len
         paddings = [padding_list
                     for _ in range(padding_len)]
         return word + paddings
 
-    def char_vocab_to_sent_padding(self, word):
+    def char_vocab_to_sent_padding(self, word, max_len):
 
         padding_list = [self.char_vocab["PADDING"]
                         for _ in range(self.char_num)]
 
         word_len = len(word)
-        padding_len = self.word_num - word_len
+        padding_len = max_len - word_len
         paddings = [padding_list
                     for _ in range(padding_len)]
         return word + paddings
 
     #  Padding word to make equal length sentences
-    def word_padding(self, word):
+    def word_padding(self, word, max_len):
         word_len = len(word)
-        padding_len = self.word_num - word_len
+        padding_len = max_len - word_len
         paddings = [self.features["PADDING"]
                     for _ in range(padding_len)]
         return word + paddings
 
     # Embedding PADDING to make equal length sentences
-    def word_embedding_padding(self, word):
+    def word_embedding_padding(self, word, max_len):
         word_len = len(word)
-        padding_len = self.word_num - word_len
+        padding_len = max_len - word_len
         paddings = [self.vocab["padding"]
                     for _ in range(padding_len)]
         return word + paddings
 
-    def label_padding(self, labels):
+    def label_padding(self, labels, max_len):
         word_len = len(labels)
-        padding_len = self.word_num - word_len
+        padding_len = max_len - word_len
         paddings = [self.get_labels("O")
                     for _ in range(padding_len)]
         return labels + paddings
 
 # data = Data()
-# sentences = data.get_sentences()
-# encoded_sentences = data.encode_sentences(sentences)
-# print(encoded_sentences[0])
+#
+# train_sentences = data.get_train_sentences()
+# val_sentence = data.get_val_sentences()
+# test_sentence = data.get_test_sentences()
+#
+# train_sentences, _, _ = data.formated_dataset(train_sentences)
+# val_sentence, _, _ = data.formated_dataset(val_sentence, batch=False)
+# test_sentence, _, _ = data.formated_dataset(test_sentence, batch=False)
+#
+# print(len(train_sentences))
+# print(len(val_sentence))
+# print(len(test_sentence))

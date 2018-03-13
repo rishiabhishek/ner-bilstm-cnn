@@ -7,28 +7,35 @@ import string
 
 class Data(object):
     def __init__(self):
-        # print("Read Dataset")
-        # self.data_path = os.path.join(os.path.expanduser(
-        #     '~'), "dataset/eng_final.train.txt")
-        # self.embedding_path = os.path.join(os.path.expanduser(
-        #     '~'), "embedding/glove.6B.100d.txt")
-
+        print("Read Dataset")
 
         # Embeddings
-        self.embedding_path = os.path.join(os.path.expanduser(
-            '~'), "Workspace/Datasets/embeddings/glove.6B/glove.6B.100d.txt")
+        self.embedding_path = os.path.join(os.path.expanduser('~'), "Embeddings/glove.6B/glove.6B.100d.txt")
 
         # Training Dataset
-        self.data_path = os.path.join(os.path.expanduser(
-            '~'), "Workspace/Important-Datasets/conll2003/eng.train")
+        self.data_path = os.path.join(os.path.expanduser('~'), "Dataset/eng.train")
 
         # Validation Dataset
-        self.validation_path = os.path.join(os.path.expanduser(
-            '~'), "Workspace/Important-Datasets/conll2003/eng.testa")
+        self.validation_path = os.path.join(os.path.expanduser('~'), "Dataset/eng.testa")
 
         # Test Dataset
-        self.test_path = os.path.join(os.path.expanduser(
-            '~'), "Workspace/Important-Datasets/conll2003/eng.testb")
+        self.test_path = os.path.join(os.path.expanduser('~'), "Dataset/eng.testb")
+
+        # # Embeddings
+        # self.embedding_path = os.path.join(os.path.expanduser(
+        #     '~'), "Workspace/Datasets/embeddings/glove.6B/glove.6B.100d.txt")
+        #
+        # # Training Dataset
+        # self.data_path = os.path.join(os.path.expanduser(
+        #     '~'), "Workspace/Important-Datasets/conll2003/eng.train")
+        #
+        # # Validation Dataset
+        # self.validation_path = os.path.join(os.path.expanduser(
+        #     '~'), "Workspace/Important-Datasets/conll2003/eng.testa")
+        #
+        # # Test Dataset
+        # self.test_path = os.path.join(os.path.expanduser(
+        #     '~'), "Workspace/Important-Datasets/conll2003/eng.testb")
 
         self.dataset, self.words, self.pos, self.labels = self.read_file()
         self.test_dataset, self.test_words, self.test_pos, self.test_labels = self.read_file(type='test')

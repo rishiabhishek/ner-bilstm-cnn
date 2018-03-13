@@ -7,6 +7,7 @@ from keras.utils import generic_utils
 from keras.utils.vis_utils import plot_model
 from keras.callbacks import ModelCheckpoint, Callback
 from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
+from sklearn.metrics import precision_recall_fscore_support as score
 
 
 class NERModel(object):
@@ -182,29 +183,29 @@ class NERModel(object):
         return np.array(word_case_inputs), np.array(pos_inputs), np.array(word_inputs), np.array(
             char_inputs), np.array(char_case_inputs), np.array(labels_)
 
-    def convet_to_prediction(self, y_probs):
-        y_pred = np.zeros_like(y_probs)
-        y_class = np.argmax(y_probs, axis=-1)
+    def convet_to_prediction(self, y_pred, y_true):
+        y_pred = np.argmax(y_pred, axis=-1)
+        y_true = np.argmax(y_true, axis=-1)
 
-        i, j = y_class.shape
-        for x in range(i):
-            for y in range(j):
-                z = y_class[x, y]
-                y_pred[x, y, z] = 1
+        y_pred = y_pred.flatten()
+        y_true = y_true.flatten()
 
-        return y_pred
+        precision, recall, fscore, support = score(y_true, y_pred)
+        print('Precision: {}'.format(precision))
+        print('Recall: {}'.format(recall))
+        print('F1-Score: {}'.format(fscore))
+        print('support: {}'.format(support))
 
     def train(self, inputs, validation_data, epochs=40):
 
         validation_data = self._validation_generator(validation_data)
         batches = self._minibatch(inputs)
         print("Batch Length : " + str(len(batches)))
-        progbar = generic_utils.Progbar(len(batches))
 
         for epoch in range(epochs):
 
             print("Epoch {} / {}".format(epoch + 1, epochs))
-
+            progbar = generic_utils.Progbar(len(batches))
             for i, batch in enumerate(batches):
                 word_case_inputs, pos_inputs, word_inputs, char_inputs, char_case_inputs, labels_ = batch
 
@@ -219,40 +220,7 @@ class NERModel(object):
                 [val_word_case_inputs, val_pos_inputs, val_word_inputs, val_char_inputs, val_char_case_inputs],
                 batch_size=10)
 
-            prec = precision_score(y_true=y_true, y_pred=self.convet_to_prediction(y_pred))
-            recall = recall_score(y_true=y_true, y_pred=y_pred)
-            f1 = f1_score(y_true=y_true, y_pred=y_pred)
-            print("Precision : {:.2f}, Recall : {:.2f}, F1-Score : {:.2f}".format(prec, recall, f1))
-            file_path = 'ner-model-{}.h5'.format(epoch + 1)
-            self.model.save(file_path)
-
-
-class Metrics(Callback):
-    def on_train_begin(self, logs={}):
-        self.val_f1s = []
-        self.val_recalls = []
-        self.val_precisions = []
-
-    def on_epoch_end(self, epoch, logs={}):
-        val_predict = (np.asarray(self.model.predict(self.model.validation_data[0]))).round()
-        val_targ = self.model.validation_data[1]
-        _val_f1 = f1_score(val_targ, val_predict)
-        _val_recall = recall_score(val_targ, val_predict)
-        _val_precision = precision_score(val_targ, val_predict)
-        self.val_f1s.append(_val_f1)
-        self.val_recalls.append(_val_recall)
-        self.val_precisions.append(_val_precision)
-        print(" — val_f1: % f — val_precision: % f — val_recall % f" % (_val_f1, _val_precision, _val_recall))
-        return
-
-    def on_batch_end(self, batch, logs=None):
-        val_predict = (np.asarray(self.model.predict(self.model.validation_data[0]))).round()
-        val_targ = self.model.validation_data[1]
-        _val_f1 = f1_score(val_targ, val_predict)
-        _val_recall = recall_score(val_targ, val_predict)
-        _val_precision = precision_score(val_targ, val_predict)
-        self.val_f1s.append(_val_f1)
-        self.val_recalls.append(_val_recall)
-        self.val_precisions.append(_val_precision)
-        print(" — val_f1: % f — val_precision: % f — val_recall % f" % (_val_f1, _val_precision, _val_recall))
-        return
+            self.convet_to_prediction(y_pred=y_pred, y_true=y_true)
+            if epoch != 0 and epoch % 10 == 0:
+                file_path = 'ner-model-{}.h5'.format(epoch + 1)
+                self.model.save(file_path)

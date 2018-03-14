@@ -190,7 +190,22 @@ class NERModel(object):
         y_pred = y_pred.flatten()
         y_true = y_true.flatten()
 
-        precision, recall, fscore, support = score(y_true, y_pred)
+        return y_pred, y_true
+
+    def print_score(self, y_pred_list, y_true_list):
+
+        final_y_pred = None
+        final_y_true = None
+
+        for i in range(len(y_pred_list)):
+            if final_y_pred is None or final_y_true is None:
+                final_y_pred = y_pred_list[i].tolist()
+                final_y_true = y_true_list[i].tolist()
+            else:
+                final_y_pred = final_y_pred + y_pred_list[i].tolist()
+                final_y_true = final_y_true + y_true_list[i].tolist()
+
+        precision, recall, fscore, support = score(np.array(final_y_true), np.array(final_y_pred))
         print('Precision: {}'.format(precision))
         print('Recall: {}'.format(recall))
         print('F1-Score: {}'.format(fscore))
@@ -198,7 +213,7 @@ class NERModel(object):
 
     def train(self, inputs, validation_data, epochs=40):
 
-        validation_data = self._validation_generator(validation_data)
+        validation_data = self._minibatch(validation_data)
         batches = self._minibatch(inputs)
         print("Batch Length : " + str(len(batches)))
 
@@ -215,12 +230,26 @@ class NERModel(object):
 
                 progbar.add(1, values=[("train loss", loss), ("acc", acc)])
 
-            val_word_case_inputs, val_pos_inputs, val_word_inputs, val_char_inputs, val_char_case_inputs, y_true = validation_data
-            y_pred = self.model.predict(
-                [val_word_case_inputs, val_pos_inputs, val_word_inputs, val_char_inputs, val_char_case_inputs],
-                batch_size=10)
+            print("Calculating F1-Score : " + str(len(batches)))
+            progbar1 = generic_utils.Progbar(len(batches))
 
-            self.convet_to_prediction(y_pred=y_pred, y_true=y_true)
+            y_pred_list = []
+            y_true_list = []
+
+            for i, batch in enumerate(validation_data):
+                val_word_case_inputs, val_pos_inputs, val_word_inputs, val_char_inputs, val_char_case_inputs, y_true = batch
+
+                y_pred = self.model.predict(
+                    [val_word_case_inputs, val_pos_inputs, val_word_inputs, val_char_inputs, val_char_case_inputs],
+                    batch_size=len(batch))
+                progbar1.add(1)
+
+                y_pred, y_true = self.convet_to_prediction(y_pred=y_pred, y_true=y_true)
+                y_pred_list.append(y_pred)
+                y_true_list.append(y_true)
+
+            self.print_score(y_pred_list, y_true_list)
+
             if epoch != 0 and epoch % 10 == 0:
                 file_path = 'ner-model-{}.h5'.format(epoch + 1)
                 self.model.save(file_path)

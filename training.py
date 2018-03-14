@@ -6,9 +6,9 @@ train_sentences = data.get_train_sentences()
 val_sentence = data.get_val_sentences()
 test_sentence = data.get_test_sentences()
 
-train_sentences, word_length, _ = data.formated_dataset(train_sentences)
-val_sentence, _, _ = data.formated_dataset(val_sentence, batch=True, batch_size=10)
-test_sentence, _, _ = data.formated_dataset(test_sentence, batch=False)
+train_sentences, word_length, _ = data.formated_dataset(train_sentences[:20])
+val_sentence, _, _ = data.formated_dataset(val_sentence[:20], batch=True, batch_size=10)
+test_sentence, _, _ = data.formated_dataset(test_sentence[:20], batch=False)
 
 case_embeddings = data.get_case_embeddings()
 pos_embedings = data.get_pos_embeddings()

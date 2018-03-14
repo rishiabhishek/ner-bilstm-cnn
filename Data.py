@@ -10,7 +10,7 @@ class Data(object):
         print("Read Dataset")
 
         # Embeddings
-        self.embedding_path = os.path.join(os.path.expanduser('~'), "Embeddings/glove.6B/glove.6B.100d.txt")
+        self.embedding_path = os.path.join(os.path.expanduser('~'), "Embeddings/glove.6B.100d.txt")
 
         # Training Dataset
         self.data_path = os.path.join(os.path.expanduser('~'), "Dataset/eng.train")
